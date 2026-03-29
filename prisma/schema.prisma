@@ -1,0 +1,79 @@
+generator client {
+  provider = "prisma-client-js"
+  engineType = "library"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  STUDENT
+  LIBRARIAN
+  ADMIN
+}
+
+enum TransactionStatus {
+  ISSUED
+  RETURNED
+  MISSING
+}
+
+enum FineStatus {
+  PAID
+  UNPAID
+}
+
+model User {
+  id             Int           @id @default(autoincrement())
+  name           String
+  email          String        @unique
+  password       String
+  role           Role          @default(STUDENT)
+  registerNumber String?       @unique
+  department     String?
+  transactions   Transaction[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+model Book {
+  id           Int           @id @default(autoincrement())
+  title        String
+  author       String
+  stock        Int           @default(0)
+  bookCode     String        @unique
+  rackNumber   String?
+  transactions Transaction[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model Transaction {
+  id         Int               @id @default(autoincrement())
+  userId     Int
+  bookId     Int
+  issueDate  DateTime          @default(now())
+  returnDate DateTime?
+  status     TransactionStatus @default(ISSUED)
+
+  user User     @relation(fields: [userId], references: [id])
+  book Book     @relation(fields: [bookId], references: [id])
+  Fine Fine?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Fine {
+  id            Int        @id @default(autoincrement())
+  transactionId Int        @unique
+  amount        Float      @default(0)
+  status        FineStatus @default(UNPAID)
+
+  transaction Transaction @relation(fields: [transactionId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
