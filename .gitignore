@@ -7,3 +7,4 @@ users.txt
 seed.ts
 prisma/migrations
 dist
+logs
