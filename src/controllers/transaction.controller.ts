@@ -219,3 +219,104 @@ export const getReturnedBooks = async (req: Request, res: Response): Promise<voi
     res.status(500).json({ message: 'Error fetching returned books' });
   }
 };
+
+export const createMissingTransaction = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { userId, bookId, fineAmount } = req.body;
+
+    const book = await prisma.book.findUnique({ where: { id: Number(bookId) } });
+    if (!book) { res.status(404).json({ message: 'Book not found' }); return; }
+
+    const user = await prisma.user.findUnique({ where: { id: Number(userId) } });
+    if (!user) { res.status(404).json({ message: 'User not found' }); return; }
+
+    const transaction = await prisma.$transaction(async (tx) => {
+      // 1. Check if there's an existing ISSUED transaction
+      let existingTx = await tx.transaction.findFirst({
+        where: {
+          userId: Number(userId),
+          bookId: Number(bookId),
+          status: 'ISSUED'
+        }
+      });
+
+      if (existingTx) {
+        // Update existing transaction to MISSING
+        existingTx = await tx.transaction.update({
+          where: { id: existingTx.id },
+          data: { status: 'MISSING' }
+        });
+      } else {
+        // Create new MISSING transaction and decrement stock
+        existingTx = await tx.transaction.create({
+          data: {
+            userId: Number(userId),
+            bookId: Number(bookId),
+            status: 'MISSING'
+          }
+        });
+        await tx.book.update({
+          where: { id: Number(bookId) },
+          data: { stock: { decrement: 1 } }
+        });
+      }
+
+      // 2. Create Fine
+      await tx.fine.create({
+        data: {
+          transactionId: existingTx.id,
+          amount: parseFloat(fineAmount),
+          status: 'UNPAID'
+        }
+      });
+
+      return existingTx;
+    });
+
+    res.status(201).json({ message: 'Missing book logged and fine generated', transaction });
+  } catch (error) {
+    res.status(500).json({ message: 'Error logging missing book', error });
+  }
+};
+
+export const getMissingBooks = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
+    const search = String(req.query.search || '').trim();
+    const skip = (page - 1) * limit;
+
+    const where: any = { status: 'MISSING' as const };
+
+    if (search) {
+      where.OR = [
+        { user: { name: { contains: search } } },
+        { user: { registerNumber: { contains: search } } },
+        { book: { title: { contains: search } } },
+        { book: { bookCode: { contains: search } } },
+      ];
+    }
+
+    const [transactions, total] = await Promise.all([
+      prisma.transaction.findMany({
+        where,
+        orderBy: { updatedAt: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          book: { select: { id: true, title: true, author: true, bookCode: true } },
+          user: { select: { id: true, name: true, email: true, registerNumber: true, department: true } },
+          Fine: true,
+        },
+      }),
+      prisma.transaction.count({ where }),
+    ]);
+
+    res.json({
+      data: transactions,
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Error fetching missing books' });
+  }
+};
