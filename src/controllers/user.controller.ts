@@ -110,7 +110,34 @@ export const updateUser = async (req: Request, res: Response): Promise<void> => 
 export const deleteUser = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    await prisma.user.delete({ where: { id: Number(id) } });
+    const userId = Number(id);
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Get all transaction IDs of this user
+      const transactions = await tx.transaction.findMany({
+        where: { userId },
+        select: { id: true }
+      });
+      const transactionIds = transactions.map(t => t.id);
+
+      // 2. Delete Fines associated with these transactions
+      if (transactionIds.length > 0) {
+        await tx.fine.deleteMany({
+          where: { transactionId: { in: transactionIds } }
+        });
+      }
+
+      // 3. Delete Transactions of this user
+      await tx.transaction.deleteMany({
+        where: { userId }
+      });
+
+      // 4. Delete the User
+      await tx.user.delete({
+        where: { id: userId }
+      });
+    });
+
     res.json({ message: 'User deleted successfully' });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });
