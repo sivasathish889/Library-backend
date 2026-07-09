@@ -11,9 +11,9 @@ import Logger from './config/logger';
 const app = express();
 
 
-app.use(cors({
-  origin: "*"
-}));
+// app.use(cors({
+//   origin: "*"
+// }));
 app.use(express.json());
 app.use(Logger)
 

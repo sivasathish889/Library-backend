@@ -1,5 +1,5 @@
 generator client {
-  provider = "prisma-client-js"
+  provider   = "prisma-client-js"
   engineType = "library"
 }
 
@@ -25,6 +25,13 @@ enum FineStatus {
   UNPAID
 }
 
+enum BookStatus {
+  AVAILABLE
+  ISSUED
+  LOST
+  DAMAGED
+}
+
 model User {
   id             Int           @id @default(autoincrement())
   name           String
@@ -39,12 +46,24 @@ model User {
 }
 
 model Book {
+  id         Int        @id @default(autoincrement())
+  title      String
+  author     String
+  stock      Int        @default(0)
+  bookCode   String     @unique
+  rackNumber String?
+  copies     BookCopy[]
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+}
+
+model BookCopy {
   id           Int           @id @default(autoincrement())
-  title        String
-  author       String
-  stock        Int           @default(0)
-  bookCode     String        @unique
-  rackNumber   String?
+  accessionNo  String        @unique
+  barcode      String?       @unique
+  status       BookStatus    @default(AVAILABLE)
+  bookId       Int
+  book         Book          @relation(fields: [bookId], references: [id])
   transactions Transaction[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
@@ -53,14 +72,14 @@ model Book {
 model Transaction {
   id         Int               @id @default(autoincrement())
   userId     Int
-  bookId     Int
+  bookCopyId Int
   issueDate  DateTime          @default(now())
   returnDate DateTime?
   status     TransactionStatus @default(ISSUED)
 
-  user User     @relation(fields: [userId], references: [id])
-  book Book     @relation(fields: [bookId], references: [id])
-  Fine Fine?
+  user     User     @relation(fields: [userId], references: [id])
+  bookCopy BookCopy @relation(fields: [bookCopyId], references: [id])
+  Fine     Fine?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
