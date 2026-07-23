@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import prisma from '../config/db';
-import { Role } from '@prisma/client';
+import { Role, Prisma } from '@prisma/client';
 
 export const getUsers = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -17,7 +17,7 @@ export const searchStudents = async (req: Request, res: Response): Promise<void>
     const { registerNumber, name, department } = req.query;
 
     // Build filter conditions
-    const conditions: any[] = [{ role: 'STUDENT' as const }];
+    const conditions: Prisma.UserWhereInput[] = [{ role: Role.STUDENT }];
     if (registerNumber && String(registerNumber).trim()) {
       conditions.push({ registerNumber: { contains: String(registerNumber) } });
     }
@@ -112,13 +112,13 @@ export const deleteUser = async (req: Request, res: Response): Promise<void> => 
     const { id } = req.params;
     const userId = Number(id);
 
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // 1. Get all transaction IDs of this user
       const transactions = await tx.transaction.findMany({
         where: { userId },
         select: { id: true }
       });
-      const transactionIds = transactions.map(t => t.id);
+      const transactionIds = transactions.map((t: { id: number }) => t.id);
 
       // 2. Delete Fines associated with these transactions
       if (transactionIds.length > 0) {

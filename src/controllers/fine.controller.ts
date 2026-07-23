@@ -18,9 +18,16 @@ export const updateFineConfig = async (req: AuthRequest, res: Response): Promise
 export const getFines = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const fines = await prisma.fine.findMany({
-      include: { transaction: { include: { book: true, user: true } } }
+      include: { transaction: { include: { bookCopy: { include: { book: true } }, user: true } } }
     });
-    res.json(fines);
+    const result = fines.map(f => ({
+      ...f,
+      transaction: f.transaction ? {
+        ...f.transaction,
+        book: f.transaction.bookCopy?.book,
+      } : null
+    }));
+    res.json(result);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });
   }
@@ -30,9 +37,16 @@ export const getMyFines = async (req: AuthRequest, res: Response): Promise<void>
   try {
     const fines = await prisma.fine.findMany({
       where: { transaction: { userId: req.user.id } },
-      include: { transaction: { include: { book: true } } }
+      include: { transaction: { include: { bookCopy: { include: { book: true } } } } }
     });
-    res.json(fines);
+    const result = fines.map(f => ({
+      ...f,
+      transaction: f.transaction ? {
+        ...f.transaction,
+        book: f.transaction.bookCopy?.book,
+      } : null
+    }));
+    res.json(result);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });
   }

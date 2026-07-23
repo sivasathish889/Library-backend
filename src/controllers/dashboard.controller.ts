@@ -23,9 +23,14 @@ export const getLibrarianDashboardStats = async (req: Request, res: Response): P
       where: { status: 'ISSUED' },
       include: {
         user: { select: { name: true, email: true } },
-        book: { select: { title: true, author: true } },
+        bookCopy: { select: { book: { select: { title: true, author: true } } } },
       },
     });
+
+    const formattedRecentIssuances = recentIssuances.map(t => ({
+      ...t,
+      book: t.bookCopy?.book,
+    }));
 
     // Activity - Last 6 months
     const sixMonthsAgo = new Date();
@@ -94,7 +99,7 @@ export const getLibrarianDashboardStats = async (req: Request, res: Response): P
       totalStudents,
       issuedBooks,
       missingBooks,
-      recentIssuances,
+      recentIssuances: formattedRecentIssuances,
       bookActivity,
       booksByAuthor,
     });

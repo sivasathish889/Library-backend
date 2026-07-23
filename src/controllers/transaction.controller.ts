@@ -1,27 +1,58 @@
 import { Request, Response } from 'express';
+import { Prisma } from '@prisma/client';
 import prisma from '../config/db';
 import { AuthRequest } from '../middlewares/auth.middleware';
 
 export const issueBook = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { userId, bookId } = req.body;
+    const { userId, bookId, bookCopyId } = req.body;
+    const targetBookId = Number(bookId);
+    let targetCopyId = bookCopyId ? Number(bookCopyId) : null;
 
-    const book = await prisma.book.findUnique({ where: { id: Number(bookId) } });
-    if (!book || book.stock <= 0) { res.status(400).json({ message: 'Book unavailable or out of stock' }); return; }
+    if (!targetCopyId && targetBookId) {
+      const copy = await prisma.bookCopy.findFirst({
+        where: { bookId: targetBookId, status: 'AVAILABLE' }
+      });
+      if (copy) {
+        targetCopyId = copy.id;
+      }
+    }
 
-    const transaction = await prisma.$transaction(async (tx) => {
+    const transaction = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      let copyToUseId = targetCopyId;
+      if (!copyToUseId) {
+        const bookObj = await tx.book.findUnique({ where: { id: targetBookId } });
+        if (!bookObj || bookObj.stock <= 0) {
+          throw new Error('Book unavailable or out of stock');
+        }
+        const createdCopy = await tx.bookCopy.create({
+          data: {
+            bookId: targetBookId,
+            accessionNo: `${bookObj.bookCode}-COPY-${Date.now()}`,
+            status: 'ISSUED',
+          }
+        });
+        copyToUseId = createdCopy.id;
+      } else {
+        await tx.bookCopy.update({
+          where: { id: copyToUseId },
+          data: { status: 'ISSUED' }
+        });
+      }
+
       await tx.book.update({
-        where: { id: Number(bookId) },
+        where: { id: targetBookId },
         data: { stock: { decrement: 1 } }
       });
+
       return tx.transaction.create({
-        data: { userId: Number(userId), bookId: Number(bookId), status: 'ISSUED' }
+        data: { userId: Number(userId), bookCopyId: copyToUseId, status: 'ISSUED' }
       });
     });
 
     res.status(201).json(transaction);
-  } catch (error) {
-    res.status(500).json({ message: 'Error issuing book' });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || 'Error issuing book' });
   }
 };
 
@@ -29,16 +60,25 @@ export const returnBook = async (req: AuthRequest, res: Response): Promise<void>
   try {
     const { id } = req.params;
 
-    const transaction = await prisma.transaction.findUnique({ where: { id: Number(id) } });
+    const transaction = await prisma.transaction.findUnique({
+      where: { id: Number(id) },
+      include: { bookCopy: true }
+    });
     if (!transaction || transaction.status !== 'ISSUED') {
       res.status(400).json({ message: 'Invalid transaction' }); return;
     }
 
-    const updated = await prisma.$transaction(async (tx) => {
-      await tx.book.update({
-        where: { id: transaction.bookId },
-        data: { stock: { increment: 1 } }
+    const updated = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      await tx.bookCopy.update({
+        where: { id: transaction.bookCopyId },
+        data: { status: 'AVAILABLE' }
       });
+      if (transaction.bookCopy?.bookId) {
+        await tx.book.update({
+          where: { id: transaction.bookCopy.bookId },
+          data: { stock: { increment: 1 } }
+        });
+      }
       return tx.transaction.update({
         where: { id: Number(id) },
         data: { status: 'RETURNED', returnDate: new Date() }
@@ -55,17 +95,24 @@ export const markMissing = async (req: AuthRequest, res: Response): Promise<void
   try {
     const { id } = req.params;
 
-    const transaction = await prisma.transaction.findUnique({ where: { id: Number(id) } });
+    const transaction = await prisma.transaction.findUnique({
+      where: { id: Number(id) },
+      include: { bookCopy: true }
+    });
     if (!transaction || transaction.status !== 'ISSUED') {
       res.status(400).json({ message: 'Invalid transaction' }); return;
     }
 
     const fineAmount = 50.0;
 
-    const updated = await prisma.$transaction(async (tx) => {
+    const updated = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const updatedTx = await tx.transaction.update({
         where: { id: Number(id) },
         data: { status: 'MISSING' }
+      });
+      await tx.bookCopy.update({
+        where: { id: transaction.bookCopyId },
+        data: { status: 'LOST' }
       });
       await tx.fine.create({
         data: { transactionId: updatedTx.id, amount: fineAmount, status: 'UNPAID' }
@@ -83,9 +130,10 @@ export const getMyTransactions = async (req: AuthRequest, res: Response): Promis
   try {
     const transactions = await prisma.transaction.findMany({
       where: { userId: req.user.id },
-      include: { book: true }
+      include: { bookCopy: { include: { book: true } } }
     });
-    res.json(transactions);
+    const result = transactions.map(t => ({ ...t, book: t.bookCopy?.book }));
+    res.json(result);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });
   }
@@ -96,11 +144,12 @@ export const getAllTransactions = async (req: Request, res: Response): Promise<v
     const transactions = await prisma.transaction.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
-        book: true,
+        bookCopy: { include: { book: true } },
         user: { select: { id: true, name: true, email: true } },
       },
     });
-    res.json(transactions);
+    const result = transactions.map(t => ({ ...t, book: t.bookCopy?.book }));
+    res.json(result);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });
   }
@@ -112,19 +161,18 @@ export const getIssuedBooks = async (req: Request, res: Response): Promise<void>
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
     const search = String(req.query.search || '').trim();
     const skip = (page - 1) * limit;
-    // Build where clause — always filter for ISSUED status
+
     const where: any = { status: 'ISSUED' as const };
 
     if (search) {
       where.OR = [
         { user: { name: { contains: search } } },
         { user: { registerNumber: { contains: search } } },
-        { book: { title: { contains: search } } },
-        { book: { bookCode: { contains: search } } },
+        { bookCopy: { book: { title: { contains: search } } } },
+        { bookCopy: { book: { bookCode: { contains: search } } } },
       ];
     }
 
-    // Run data query and count in parallel
     const [transactions, total] = await Promise.all([
       prisma.transaction.findMany({
         where,
@@ -132,13 +180,13 @@ export const getIssuedBooks = async (req: Request, res: Response): Promise<void>
         skip,
         take: limit,
         include: {
-          book: { select: { id: true, title: true, bookCode: true } },
+          bookCopy: { select: { id: true, book: { select: { id: true, title: true, bookCode: true } } } },
           user: { select: { id: true, name: true, email: true, registerNumber: true, department: true } },
         },
       }),
       prisma.transaction.count({ where }),
     ]);
-    // Overdue / critical counts (server-side, for the stats cards)
+
     const now = new Date();
     const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -147,8 +195,11 @@ export const getIssuedBooks = async (req: Request, res: Response): Promise<void>
       prisma.transaction.count({ where: { status: 'ISSUED', issueDate: { lt: fourteenDaysAgo } } }),
       prisma.transaction.count({ where: { status: 'ISSUED', issueDate: { lt: thirtyDaysAgo } } }),
     ]);
+
+    const result = transactions.map(t => ({ ...t, book: t.bookCopy?.book }));
+
     res.json({
-      data: transactions,
+      data: result,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
       stats: { totalIssued: total, overdueCount, criticalCount },
     });
@@ -168,12 +219,14 @@ export const getIssuedBooksByUser = async (req: Request, res: Response): Promise
       },
       orderBy: { issueDate: 'desc' },
       include: {
-        book: { select: { id: true, title: true, author: true, bookCode: true, rackNumber: true } },
+        bookCopy: { select: { id: true, book: { select: { id: true, title: true, author: true, bookCode: true, rackNumber: true } } } },
         user: { select: { id: true, name: true, registerNumber: true, department: true } },
       },
     });
 
-    res.json(transactions);
+    const result = transactions.map(t => ({ ...t, book: t.bookCopy?.book }));
+
+    res.json(result);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });
   }
@@ -192,8 +245,8 @@ export const getReturnedBooks = async (req: Request, res: Response): Promise<voi
       where.OR = [
         { user: { name: { contains: search } } },
         { user: { registerNumber: { contains: search } } },
-        { book: { title: { contains: search } } },
-        { book: { bookCode: { contains: search } } },
+        { bookCopy: { book: { title: { contains: search } } } },
+        { bookCopy: { book: { bookCode: { contains: search } } } },
       ];
     }
 
@@ -204,15 +257,17 @@ export const getReturnedBooks = async (req: Request, res: Response): Promise<voi
         skip,
         take: limit,
         include: {
-          book: { select: { id: true, title: true, author: true, bookCode: true } },
+          bookCopy: { select: { id: true, book: { select: { id: true, title: true, author: true, bookCode: true } } } },
           user: { select: { id: true, name: true, email: true, registerNumber: true, department: true } },
         },
       }),
       prisma.transaction.count({ where }),
     ]);
 
+    const result = transactions.map(t => ({ ...t, book: t.bookCopy?.book }));
+
     res.json({
-      data: transactions,
+      data: result,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     });
   } catch (error) {
@@ -222,46 +277,62 @@ export const getReturnedBooks = async (req: Request, res: Response): Promise<voi
 
 export const createMissingTransaction = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { userId, bookId, fineAmount } = req.body;
+    const { userId, bookId, bookCopyId, fineAmount } = req.body;
+    const targetBookId = Number(bookId);
 
-    const book = await prisma.book.findUnique({ where: { id: Number(bookId) } });
+    const book = await prisma.book.findUnique({ where: { id: targetBookId } });
     if (!book) { res.status(404).json({ message: 'Book not found' }); return; }
 
     const user = await prisma.user.findUnique({ where: { id: Number(userId) } });
     if (!user) { res.status(404).json({ message: 'User not found' }); return; }
 
-    const transaction = await prisma.$transaction(async (tx) => {
-      // 1. Check if there's an existing ISSUED transaction
+    const transaction = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       let existingTx = await tx.transaction.findFirst({
         where: {
           userId: Number(userId),
-          bookId: Number(bookId),
+          bookCopy: { bookId: targetBookId },
           status: 'ISSUED'
         }
       });
 
       if (existingTx) {
-        // Update existing transaction to MISSING
         existingTx = await tx.transaction.update({
           where: { id: existingTx.id },
           data: { status: 'MISSING' }
         });
+        await tx.bookCopy.update({
+          where: { id: existingTx.bookCopyId },
+          data: { status: 'LOST' }
+        });
       } else {
-        // Create new MISSING transaction and decrement stock
+        let copy = await tx.bookCopy.findFirst({ where: { bookId: targetBookId } });
+        if (!copy) {
+          copy = await tx.bookCopy.create({
+            data: {
+              bookId: targetBookId,
+              accessionNo: `${book.bookCode}-COPY-${Date.now()}`,
+              status: 'LOST'
+            }
+          });
+        } else {
+          await tx.bookCopy.update({
+            where: { id: copy.id },
+            data: { status: 'LOST' }
+          });
+        }
         existingTx = await tx.transaction.create({
           data: {
             userId: Number(userId),
-            bookId: Number(bookId),
+            bookCopyId: copy.id,
             status: 'MISSING'
           }
         });
         await tx.book.update({
-          where: { id: Number(bookId) },
+          where: { id: targetBookId },
           data: { stock: { decrement: 1 } }
         });
       }
 
-      // 2. Create Fine
       await tx.fine.create({
         data: {
           transactionId: existingTx.id,
@@ -292,8 +363,8 @@ export const getMissingBooks = async (req: Request, res: Response): Promise<void
       where.OR = [
         { user: { name: { contains: search } } },
         { user: { registerNumber: { contains: search } } },
-        { book: { title: { contains: search } } },
-        { book: { bookCode: { contains: search } } },
+        { bookCopy: { book: { title: { contains: search } } } },
+        { bookCopy: { book: { bookCode: { contains: search } } } },
       ];
     }
 
@@ -304,7 +375,7 @@ export const getMissingBooks = async (req: Request, res: Response): Promise<void
         skip,
         take: limit,
         include: {
-          book: { select: { id: true, title: true, author: true, bookCode: true } },
+          bookCopy: { select: { id: true, book: { select: { id: true, title: true, author: true, bookCode: true } } } },
           user: { select: { id: true, name: true, email: true, registerNumber: true, department: true } },
           Fine: true,
         },
@@ -312,8 +383,10 @@ export const getMissingBooks = async (req: Request, res: Response): Promise<void
       prisma.transaction.count({ where }),
     ]);
 
+    const result = transactions.map(t => ({ ...t, book: t.bookCopy?.book }));
+
     res.json({
-      data: transactions,
+      data: result,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     });
   } catch (error) {

@@ -3,24 +3,26 @@ import fs from "fs";
 import path from "path";
 
 const Logger = (req: Request, res: Response, next: NextFunction) => {
-    const date = new Date();
-    const time = `${date.toLocaleDateString()} -- ${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}`;
-    const log = `${time} -- ${req.method} -- ${req.originalUrl} -- ${res.statusCode}`;
-    
-    console.log(log);
+    res.on('finish', () => {
+        const date = new Date();
+        const time = `${date.toLocaleDateString()} -- ${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}`;
+        const log = `${time} -- ${req.method} -- ${req.originalUrl} -- ${res.statusCode}`;
+        
+        console.log(log);
 
-    const logDir = path.join(__dirname, "../../logs");
-    const logFile = path.join(logDir, "log.txt");
+        const logDir = path.join(__dirname, "../../logs");
+        const logFile = path.join(logDir, "log.txt");
 
-    // Ensure logs directory exists
-    if (!fs.existsSync(logDir)) {
-        fs.mkdirSync(logDir, { recursive: true });
-    }
-
-    fs.appendFile(logFile, log + "\n", (err) => {
-        if (err) {
-            console.error("Error writing to log file:", err);
+        // Ensure logs directory exists
+        if (!fs.existsSync(logDir)) {
+            fs.mkdirSync(logDir, { recursive: true });
         }
+
+        fs.appendFile(logFile, log + "\n", (err) => {
+            if (err) {
+                console.error("Error writing to log file:", err);
+            }
+        });
     });
 
     next();

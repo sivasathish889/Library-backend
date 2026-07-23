@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { Prisma } from '@prisma/client';
 import prisma from '../config/db';
 
 export const getBooks = async (req: Request, res: Response): Promise<void> => {
@@ -33,9 +34,12 @@ export const getBooks = async (req: Request, res: Response): Promise<void> => {
 
       res.json({
         books,
-        total,
-        page: Number(page),
-        totalPages: Math.ceil(total / Number(limit))
+        pagination: {
+          total,
+          page: Number(page),
+          limit: Number(limit),
+          totalPages: Math.ceil(total / Number(limit))
+        }
       });
       return;
     }
@@ -53,7 +57,12 @@ export const getBooks = async (req: Request, res: Response): Promise<void> => {
 export const getBookById = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const book = await prisma.book.findUnique({ where: { id: Number(id) } });
+    const book = await prisma.book.findUnique({
+      where: { id: Number(id) },
+      include: {
+        copies: true
+      }
+    });
     if (!book) {
       res.status(404).json({ message: 'Book not found' });
       return;
@@ -67,8 +76,24 @@ export const getBookById = async (req: Request, res: Response): Promise<void> =>
 export const createBook = async (req: Request, res: Response): Promise<void> => {
   try {
     const { title, author, stock, bookCode, rackNumber } = req.body;
+
+    const existingBook = await prisma.book.findUnique({
+      where: { bookCode }
+    });
+
+    if (existingBook) {
+      res.status(400).json({ message: 'Book with this bookCode already exists' });
+      return;
+    }
+
     const book = await prisma.book.create({
-      data: { title, author, stock, bookCode, rackNumber }
+      data: {
+        title,
+        author,
+        stock: stock ? Number(stock) : 0,
+        bookCode,
+        rackNumber
+      }
     });
     res.status(201).json(book);
   } catch (error) {
@@ -95,27 +120,41 @@ export const deleteBook = async (req: Request, res: Response): Promise<void> => 
     const { id } = req.params;
     const bookId = Number(id);
 
-    await prisma.$transaction(async (tx) => {
-      // 1. Get all transaction IDs of this book
-      const transactions = await tx.transaction.findMany({
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // 1. Get all book copy IDs of this book
+      const copies = await tx.bookCopy.findMany({
         where: { bookId },
         select: { id: true }
       });
-      const transactionIds = transactions.map(t => t.id);
+      const copyIds = copies.map((c: { id: number }) => c.id);
 
-      // 2. Delete Fines associated with these transactions
-      if (transactionIds.length > 0) {
-        await tx.fine.deleteMany({
-          where: { transactionId: { in: transactionIds } }
+      if (copyIds.length > 0) {
+        // 2. Get all transaction IDs of these book copies
+        const transactions = await tx.transaction.findMany({
+          where: { bookCopyId: { in: copyIds } },
+          select: { id: true }
+        });
+        const transactionIds = transactions.map((t: { id: number }) => t.id);
+
+        // 3. Delete Fines associated with these transactions
+        if (transactionIds.length > 0) {
+          await tx.fine.deleteMany({
+            where: { transactionId: { in: transactionIds } }
+          });
+        }
+
+        // 4. Delete Transactions of these book copies
+        await tx.transaction.deleteMany({
+          where: { bookCopyId: { in: copyIds } }
+        });
+
+        // 5. Delete Book copies
+        await tx.bookCopy.deleteMany({
+          where: { bookId }
         });
       }
 
-      // 3. Delete Transactions of this book
-      await tx.transaction.deleteMany({
-        where: { bookId }
-      });
-
-      // 4. Delete the Book
+      // 6. Delete the Book
       await tx.book.delete({
         where: { id: bookId }
       });
