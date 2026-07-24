@@ -10,19 +10,23 @@ const Logger = (req: Request, res: Response, next: NextFunction) => {
         
         console.log(log);
 
-        const logDir = path.join(__dirname, "../../logs");
-        const logFile = path.join(logDir, "log.txt");
+        try {
+            const logDir = path.join(__dirname, "../../logs");
+            const logFile = path.join(logDir, "log.txt");
 
-        // Ensure logs directory exists
-        if (!fs.existsSync(logDir)) {
-            fs.mkdirSync(logDir, { recursive: true });
-        }
-
-        fs.appendFile(logFile, log + "\n", (err) => {
-            if (err) {
-                console.error("Error writing to log file:", err);
+            // Ensure logs directory exists
+            if (!fs.existsSync(logDir)) {
+                fs.mkdirSync(logDir, { recursive: true });
             }
-        });
+
+            fs.appendFile(logFile, log + "\n", (err) => {
+                if (err) {
+                    // Suppress error writing to log file in read-only filesystems
+                }
+            });
+        } catch {
+            // Ignore file logging errors in read-only / serverless environments (e.g. /var/task)
+        }
     });
 
     next();
