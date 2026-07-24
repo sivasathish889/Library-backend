@@ -61,9 +61,15 @@ const options: swaggerJsdoc.Options = {
             id: { type: 'integer', example: 1 },
             title: { type: 'string', example: 'Clean Code' },
             author: { type: 'string', example: 'Robert C. Martin' },
+            publisher: { type: 'string', example: 'Prentice Hall', nullable: true },
+            bookCount: { type: 'integer', example: 2 },
+            accessionNumbers: {
+              type: 'array',
+              items: { type: 'string' },
+              example: ['ACC-101', 'ACC-102']
+            },
             bookCode: { type: 'string', example: 'BK-101' },
-            stock: { type: 'integer', example: 5 },
-            availableCount: { type: 'integer', example: 3 },
+            stock: { type: 'integer', example: 2 },
             rackNumber: { type: 'string', example: 'A-12', nullable: true },
             createdAt: { type: 'string', format: 'date-time' },
           },

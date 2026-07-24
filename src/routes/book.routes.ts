@@ -62,7 +62,7 @@ router.get('/:id', authenticate, getBookById);
  * @openapi
  * /api/books:
  *   post:
- *     summary: Add a new book with copy count (Librarian/Admin)
+ *     summary: Add a new book with accession numbers (Librarian/Admin)
  *     tags:
  *       - Books
  *     security:
@@ -76,8 +76,6 @@ router.get('/:id', authenticate, getBookById);
  *             required:
  *               - title
  *               - author
- *               - bookCode
- *               - stock
  *             properties:
  *               title:
  *                 type: string
@@ -85,12 +83,20 @@ router.get('/:id', authenticate, getBookById);
  *               author:
  *                 type: string
  *                 example: Robert C. Martin
+ *               publisher:
+ *                 type: string
+ *                 example: Prentice Hall
+ *               bookCount:
+ *                 type: integer
+ *                 example: 2
+ *               accessionNumbers:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["ACC-101", "ACC-102"]
  *               bookCode:
  *                 type: string
  *                 example: BK-101
- *               stock:
- *                 type: integer
- *                 example: 5
  *               rackNumber:
  *                 type: string
  *                 example: A-12
@@ -131,10 +137,16 @@ router.post('/', createBook);
  *                 type: string
  *               author:
  *                 type: string
+ *               publisher:
+ *                 type: string
+ *               bookCount:
+ *                 type: integer
+ *               accessionNumbers:
+ *                 type: array
+ *                 items:
+ *                   type: string
  *               bookCode:
  *                 type: string
- *               stock:
- *                 type: integer
  *               rackNumber:
  *                 type: string
  *     responses:

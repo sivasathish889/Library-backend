@@ -2,6 +2,25 @@ import { Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import prisma from '../config/db';
 
+const formatBookResponse = (book: any) => {
+  const accessionNumbers = book.copies ? book.copies.map((c: any) => c.accessionNo) : [];
+  const bookCount = book.stock ?? (accessionNumbers.length > 0 ? accessionNumbers.length : 0);
+  return {
+    id: book.id,
+    title: book.title,
+    author: book.author,
+    publisher: book.publisher ?? null,
+    bookCount: bookCount,
+    accessionNumbers: accessionNumbers,
+    stock: book.stock,
+    bookCode: book.bookCode,
+    rackNumber: book.rackNumber,
+    copies: book.copies,
+    createdAt: book.createdAt,
+    updatedAt: book.updatedAt,
+  };
+};
+
 export const getBooks = async (req: Request, res: Response): Promise<void> => {
   try {
     const { search, page, limit = '10' } = req.query;
@@ -13,7 +32,9 @@ export const getBooks = async (req: Request, res: Response): Promise<void> => {
         OR: [
           { title: { contains: String(search) } },
           { author: { contains: String(search) } },
-          { bookCode: { contains: String(search) } }
+          { publisher: { contains: String(search) } },
+          { bookCode: { contains: String(search) } },
+          { copies: { some: { accessionNo: { contains: String(search) } } } }
         ]
       };
     }
@@ -27,13 +48,14 @@ export const getBooks = async (req: Request, res: Response): Promise<void> => {
           where: whereClause,
           skip,
           take,
-          orderBy: { id: 'desc' }
+          orderBy: { id: 'desc' },
+          include: { copies: true }
         }),
         prisma.book.count({ where: whereClause })
       ]);
 
       res.json({
-        books,
+        books: books.map(formatBookResponse),
         pagination: {
           total,
           page: Number(page),
@@ -46,9 +68,10 @@ export const getBooks = async (req: Request, res: Response): Promise<void> => {
 
     const books = await prisma.book.findMany({
       where: whereClause,
-      orderBy: { id: 'desc' }
+      orderBy: { id: 'desc' },
+      include: { copies: true }
     });
-    res.json(books);
+    res.json(books.map(formatBookResponse));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });
   }
@@ -67,7 +90,7 @@ export const getBookById = async (req: Request, res: Response): Promise<void> =>
       res.status(404).json({ message: 'Book not found' });
       return;
     }
-    res.json(book);
+    res.json(formatBookResponse(book));
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });
   }
@@ -75,44 +98,116 @@ export const getBookById = async (req: Request, res: Response): Promise<void> =>
 
 export const createBook = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { title, author, stock, bookCode, rackNumber } = req.body;
+    const { title, author, publisher, bookCount, accessionNumbers, stock, bookCode, rackNumber } = req.body;
 
-    const existingBook = await prisma.book.findUnique({
-      where: { bookCode }
-    });
+    const accNos: string[] = Array.isArray(accessionNumbers)
+      ? accessionNumbers.map((a: any) => String(a).trim()).filter(Boolean)
+      : (typeof accessionNumbers === 'string' && accessionNumbers.trim() ? [accessionNumbers.trim()] : []);
 
-    if (existingBook) {
-      res.status(400).json({ message: 'Book with this bookCode already exists' });
-      return;
+    const count = bookCount !== undefined ? Number(bookCount) : (accNos.length > 0 ? accNos.length : (stock ? Number(stock) : 1));
+
+    if (bookCode) {
+      const existingBook = await prisma.book.findUnique({
+        where: { bookCode }
+      });
+
+      if (existingBook) {
+        res.status(400).json({ message: 'Book with this bookCode already exists' });
+        return;
+      }
+    }
+
+    const generatedBookCode = bookCode || (accNos.length > 0 ? `BK-${accNos[0]}` : `BK-${Date.now()}`);
+
+    const bookData: Prisma.BookCreateInput = {
+      title,
+      author,
+      publisher,
+      stock: count,
+      bookCode: generatedBookCode,
+      rackNumber,
+    };
+
+    if (accNos.length > 0) {
+      bookData.copies = {
+        create: accNos.map((accNo: string) => ({
+          accessionNo: accNo,
+          status: 'AVAILABLE'
+        }))
+      };
     }
 
     const book = await prisma.book.create({
-      data: {
-        title,
-        author,
-        stock: stock ? Number(stock) : 0,
-        bookCode,
-        rackNumber
+      data: bookData,
+      include: {
+        copies: true
       }
     });
-    res.status(201).json(book);
-  } catch (error) {
-    console.log(error)
-    res.status(500).json({ message: 'Server error', error });
+    res.status(201).json(formatBookResponse(book));
+  } catch (error: any) {
+    console.log(error);
+    res.status(500).json({ message: error.message || 'Server error', error });
   }
 };
 
 export const updateBook = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const { title, author, stock, bookCode, rackNumber } = req.body;
-    const book = await prisma.book.update({
-      where: { id: Number(id) },
-      data: { title, author, stock, bookCode, rackNumber }
+    const { title, author, publisher, bookCount, accessionNumbers, stock, bookCode, rackNumber } = req.body;
+    const bookId = Number(id);
+
+    const existingBook = await prisma.book.findUnique({
+      where: { id: bookId },
+      include: { copies: true }
     });
-    res.json(book);
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error });
+
+    if (!existingBook) {
+      res.status(404).json({ message: 'Book not found' });
+      return;
+    }
+
+    const accNos: string[] | undefined = Array.isArray(accessionNumbers)
+      ? accessionNumbers.map((a: any) => String(a).trim()).filter(Boolean)
+      : undefined;
+
+    const count = bookCount !== undefined
+      ? Number(bookCount)
+      : (stock !== undefined ? Number(stock) : (accNos ? accNos.length : existingBook.stock));
+
+    const updatedBook = await prisma.$transaction(async (tx) => {
+      if (accNos && accNos.length > 0) {
+        const existingAccNos = existingBook.copies.map(c => c.accessionNo);
+        const newAccNos = accNos.filter(acc => !existingAccNos.includes(acc));
+
+        if (newAccNos.length > 0) {
+          await tx.bookCopy.createMany({
+            data: newAccNos.map(acc => ({
+              bookId,
+              accessionNo: acc,
+              status: 'AVAILABLE'
+            })),
+            skipDuplicates: true
+          });
+        }
+      }
+
+      return tx.book.update({
+        where: { id: bookId },
+        data: {
+          title,
+          author,
+          publisher,
+          stock: count,
+          bookCode,
+          rackNumber
+        },
+        include: { copies: true }
+      });
+    });
+
+    res.json(formatBookResponse(updatedBook));
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || 'Server error', error });
   }
 };
 
