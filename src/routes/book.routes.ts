@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getBooks, getBookById, createBook, updateBook, deleteBook } from '../controllers/book.controller';
+import { getBooks, getBookById, createBook, updateBook, deleteBook, deleteBulkBooks } from '../controllers/book.controller';
 import { authenticate, authorize } from '../middlewares/auth.middleware';
 
 const router = Router();
@@ -172,5 +172,31 @@ router.put('/:id', authenticate, authorize(['ADMIN', 'LIBRARIAN']), updateBook);
  *         description: Book not found
  */
 router.delete('/:id', authenticate, authorize(['ADMIN', 'LIBRARIAN']), deleteBook);
+
+/**
+ * @openapi
+ * /api/books/bulk-delete:
+ *   post:
+ *     summary: Delete multiple books and their copies
+ *     tags:
+ *       - Books
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - ids
+ *             properties:
+ *               ids:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *     responses:
+ *       200:
+ *         description: Books deleted successfully
+ */
+router.post('/bulk-delete', deleteBulkBooks);
 
 export default router;

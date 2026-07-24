@@ -244,3 +244,52 @@ export const deleteBook = async (req: Request, res: Response): Promise<void> => 
     res.status(500).json({ message: 'Server error', error });
   }
 };
+
+export const deleteBulkBooks = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      res.status(400).json({ message: 'No book IDs provided' });
+      return;
+    }
+    const bookIds = ids.map((id: any) => Number(id)).filter(Boolean);
+
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      const copies = await tx.bookCopy.findMany({
+        where: { bookId: { in: bookIds } },
+        select: { id: true }
+      });
+      const copyIds = copies.map((c: { id: number }) => c.id);
+
+      if (copyIds.length > 0) {
+        const transactions = await tx.transaction.findMany({
+          where: { bookCopyId: { in: copyIds } },
+          select: { id: true }
+        });
+        const transactionIds = transactions.map((t: { id: number }) => t.id);
+
+        if (transactionIds.length > 0) {
+          await tx.fine.deleteMany({
+            where: { transactionId: { in: transactionIds } }
+          });
+        }
+
+        await tx.transaction.deleteMany({
+          where: { bookCopyId: { in: copyIds } }
+        });
+
+        await tx.bookCopy.deleteMany({
+          where: { bookId: { in: bookIds } }
+        });
+      }
+
+      await tx.book.deleteMany({
+        where: { id: { in: bookIds } }
+      });
+    });
+
+    res.json({ message: `${bookIds.length} books deleted successfully` });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || 'Server error', error });
+  }
+};
