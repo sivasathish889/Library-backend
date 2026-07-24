@@ -102,7 +102,8 @@ router.get('/:id', authenticate, getBookById);
  *             schema:
  *               $ref: '#/components/schemas/Book'
  */
-router.post('/', authenticate, authorize(['ADMIN', 'LIBRARIAN']), createBook);
+// router.post('/', authenticate, authorize(['ADMIN', 'LIBRARIAN']), createBook);
+router.post('/', authenticate, createBook);
 
 /**
  * @openapi

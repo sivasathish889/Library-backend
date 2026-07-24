@@ -23,7 +23,7 @@ export const getBooks = async (req: Request, res: Response): Promise<void> => {
       const take = Number(limit);
 
       const [books, total] = await Promise.all([
-        prisma.book.findMany({ 
+        prisma.book.findMany({
           where: whereClause,
           skip,
           take,
@@ -44,7 +44,7 @@ export const getBooks = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const books = await prisma.book.findMany({ 
+    const books = await prisma.book.findMany({
       where: whereClause,
       orderBy: { id: 'desc' }
     });
@@ -97,6 +97,7 @@ export const createBook = async (req: Request, res: Response): Promise<void> => 
     });
     res.status(201).json(book);
   } catch (error) {
+    console.log(error)
     res.status(500).json({ message: 'Server error', error });
   }
 };
