@@ -51,7 +51,6 @@ model Book {
   author     String
   publisher  String?
   stock      Int        @default(0)
-  bookCode   String?    @unique
   rackNumber String?
   copies     BookCopy[]
   createdAt  DateTime   @default(now())

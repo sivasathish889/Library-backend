@@ -28,7 +28,7 @@ export const issueBook = async (req: AuthRequest, res: Response): Promise<void> 
         const createdCopy = await tx.bookCopy.create({
           data: {
             bookId: targetBookId,
-            accessionNo: `${bookObj.bookCode}-COPY-${Date.now()}`,
+            accessionNo: `ACC-${Date.now()}`,
             status: 'ISSUED',
           }
         });
@@ -169,7 +169,7 @@ export const getIssuedBooks = async (req: Request, res: Response): Promise<void>
         { user: { name: { contains: search } } },
         { user: { registerNumber: { contains: search } } },
         { bookCopy: { book: { title: { contains: search } } } },
-        { bookCopy: { book: { bookCode: { contains: search } } } },
+        { bookCopy: { accessionNo: { contains: search } } },
       ];
     }
 
@@ -180,7 +180,7 @@ export const getIssuedBooks = async (req: Request, res: Response): Promise<void>
         skip,
         take: limit,
         include: {
-          bookCopy: { select: { id: true, book: { select: { id: true, title: true, bookCode: true } } } },
+          bookCopy: { select: { id: true, accessionNo: true, book: { select: { id: true, title: true } } } },
           user: { select: { id: true, name: true, email: true, registerNumber: true, department: true } },
         },
       }),
@@ -219,7 +219,7 @@ export const getIssuedBooksByUser = async (req: Request, res: Response): Promise
       },
       orderBy: { issueDate: 'desc' },
       include: {
-        bookCopy: { select: { id: true, book: { select: { id: true, title: true, author: true, bookCode: true, rackNumber: true } } } },
+        bookCopy: { select: { id: true, accessionNo: true, book: { select: { id: true, title: true, author: true, rackNumber: true } } } },
         user: { select: { id: true, name: true, registerNumber: true, department: true } },
       },
     });
@@ -246,7 +246,7 @@ export const getReturnedBooks = async (req: Request, res: Response): Promise<voi
         { user: { name: { contains: search } } },
         { user: { registerNumber: { contains: search } } },
         { bookCopy: { book: { title: { contains: search } } } },
-        { bookCopy: { book: { bookCode: { contains: search } } } },
+        { bookCopy: { accessionNo: { contains: search } } },
       ];
     }
 
@@ -257,7 +257,7 @@ export const getReturnedBooks = async (req: Request, res: Response): Promise<voi
         skip,
         take: limit,
         include: {
-          bookCopy: { select: { id: true, book: { select: { id: true, title: true, author: true, bookCode: true } } } },
+          bookCopy: { select: { id: true, accessionNo: true, book: { select: { id: true, title: true, author: true } } } },
           user: { select: { id: true, name: true, email: true, registerNumber: true, department: true } },
         },
       }),
@@ -310,7 +310,7 @@ export const createMissingTransaction = async (req: AuthRequest, res: Response):
           copy = await tx.bookCopy.create({
             data: {
               bookId: targetBookId,
-              accessionNo: `${book.bookCode}-COPY-${Date.now()}`,
+              accessionNo: `ACC-${Date.now()}`,
               status: 'LOST'
             }
           });
@@ -364,7 +364,7 @@ export const getMissingBooks = async (req: Request, res: Response): Promise<void
         { user: { name: { contains: search } } },
         { user: { registerNumber: { contains: search } } },
         { bookCopy: { book: { title: { contains: search } } } },
-        { bookCopy: { book: { bookCode: { contains: search } } } },
+        { bookCopy: { accessionNo: { contains: search } } },
       ];
     }
 
@@ -375,7 +375,7 @@ export const getMissingBooks = async (req: Request, res: Response): Promise<void
         skip,
         take: limit,
         include: {
-          bookCopy: { select: { id: true, book: { select: { id: true, title: true, author: true, bookCode: true } } } },
+          bookCopy: { select: { id: true, accessionNo: true, book: { select: { id: true, title: true, author: true } } } },
           user: { select: { id: true, name: true, email: true, registerNumber: true, department: true } },
           Fine: true,
         },

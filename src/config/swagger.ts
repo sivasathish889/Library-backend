@@ -68,7 +68,6 @@ const options: swaggerJsdoc.Options = {
               items: { type: 'string' },
               example: ['ACC-101', 'ACC-102']
             },
-            bookCode: { type: 'string', example: 'BK-101' },
             stock: { type: 'integer', example: 2 },
             rackNumber: { type: 'string', example: 'A-12', nullable: true },
             createdAt: { type: 'string', format: 'date-time' },

@@ -13,7 +13,6 @@ const formatBookResponse = (book: any) => {
     bookCount: bookCount,
     accessionNumbers: accessionNumbers,
     stock: book.stock,
-    bookCode: book.bookCode,
     rackNumber: book.rackNumber,
     copies: book.copies,
     createdAt: book.createdAt,
@@ -33,7 +32,6 @@ export const getBooks = async (req: Request, res: Response): Promise<void> => {
           { title: { contains: String(search) } },
           { author: { contains: String(search) } },
           { publisher: { contains: String(search) } },
-          { bookCode: { contains: String(search) } },
           { copies: { some: { accessionNo: { contains: String(search) } } } }
         ]
       };
@@ -98,7 +96,7 @@ export const getBookById = async (req: Request, res: Response): Promise<void> =>
 
 export const createBook = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { title, author, publisher, bookCount, accessionNumbers, stock, bookCode, rackNumber } = req.body;
+    const { title, author, publisher, bookCount, accessionNumbers, stock, rackNumber } = req.body;
 
     const accNos: string[] = Array.isArray(accessionNumbers)
       ? accessionNumbers.map((a: any) => String(a).trim()).filter(Boolean)
@@ -106,25 +104,11 @@ export const createBook = async (req: Request, res: Response): Promise<void> => 
 
     const count = bookCount !== undefined ? Number(bookCount) : (accNos.length > 0 ? accNos.length : (stock ? Number(stock) : 1));
 
-    if (bookCode) {
-      const existingBook = await prisma.book.findUnique({
-        where: { bookCode }
-      });
-
-      if (existingBook) {
-        res.status(400).json({ message: 'Book with this bookCode already exists' });
-        return;
-      }
-    }
-
-    const generatedBookCode = bookCode || (accNos.length > 0 ? `BK-${accNos[0]}` : `BK-${Date.now()}`);
-
     const bookData: Prisma.BookCreateInput = {
       title,
       author,
       publisher,
       stock: count,
-      bookCode: generatedBookCode,
       rackNumber,
     };
 
@@ -153,7 +137,7 @@ export const createBook = async (req: Request, res: Response): Promise<void> => 
 export const updateBook = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const { title, author, publisher, bookCount, accessionNumbers, stock, bookCode, rackNumber } = req.body;
+    const { title, author, publisher, bookCount, accessionNumbers, stock, rackNumber } = req.body;
     const bookId = Number(id);
 
     const existingBook = await prisma.book.findUnique({
@@ -198,7 +182,6 @@ export const updateBook = async (req: Request, res: Response): Promise<void> => 
           author,
           publisher,
           stock: count,
-          bookCode,
           rackNumber
         },
         include: { copies: true }

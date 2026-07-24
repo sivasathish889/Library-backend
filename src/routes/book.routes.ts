@@ -94,9 +94,6 @@ router.get('/:id', authenticate, getBookById);
  *                 items:
  *                   type: string
  *                 example: ["ACC-101", "ACC-102"]
- *               bookCode:
- *                 type: string
- *                 example: BK-101
  *               rackNumber:
  *                 type: string
  *                 example: A-12
@@ -145,8 +142,6 @@ router.post('/', createBook);
  *                 type: array
  *                 items:
  *                   type: string
- *               bookCode:
- *                 type: string
  *               rackNumber:
  *                 type: string
  *     responses:
